@@ -3,12 +3,12 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Check, Github, Loader2 } from "lucide-react";
+import { ArrowLeft, Check, GitBranch, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export default function ImportReposPage() {
   const router = useRouter();
-  const [repos, setRepos] = useState<unknown[]>([]);
+  const [repos, setRepos] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -60,9 +60,7 @@ export default function ImportReposPage() {
   };
 
   const handleImport = async () => {
-    // We safely assume repos has been narrowed appropriately or we treat items as Record<string, any>
-    const allRepos = repos as Record<string, unknown>[];
-    const selectedRepos = allRepos.filter((r) => selectedIds.has(r.id as number));
+    const selectedRepos = repos.filter((r) => selectedIds.has(r.id));
     if (selectedRepos.length === 0) return;
 
     try {
@@ -95,14 +93,14 @@ export default function ImportReposPage() {
       <div className="fixed inset-0 paper-tooth pointer-events-none" aria-hidden />
       
       <div className="max-w-4xl mx-auto relative z-10">
-        <div className="mb-8 flex items-center justify-between">
+        <div className="mb-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <Link href="/dashboard" className="inline-flex items-center text-sm text-ink-500 hover:text-ink-900 transition-colors mb-4">
               <ArrowLeft className="w-4 h-4 mr-2" />
               Back to Dashboard
             </Link>
             <h1 className="text-3xl font-display font-normal text-ink-900 flex items-center gap-3">
-              <Github className="w-8 h-8 text-ink-700" />
+              <GitBranch className="w-8 h-8 text-ink-700" />
               Import from GitHub
             </h1>
             <p className="mt-2 text-ink-700">Select repositories to import as Idea drafts.</p>
@@ -110,7 +108,7 @@ export default function ImportReposPage() {
           <Button
             onClick={handleImport}
             disabled={selectedIds.size === 0 || importing}
-            className="gradient-btn h-11 px-6 rounded-full shadow-md transition-all disabled:opacity-50"
+            className="w-full sm:w-auto gradient-btn h-11 px-6 rounded-full shadow-md transition-all disabled:opacity-50"
           >
             {importing ? (
               <>

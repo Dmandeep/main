@@ -58,7 +58,7 @@ export function Sidebar() {
     const channelName = `user-${user.id}`;
     const channel = pusher.subscribe(channelName);
     
-    channel.bind("notification-new", (notif: Record<string, unknown>) => {
+    channel.bind("notification-new", (notif: any) => {
        queryClient.setQueryData(["notifications"], (old: { data?: unknown[], meta?: { unreadCount?: number } } | undefined) => {
          if (!old) return old;
          return {

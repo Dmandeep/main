@@ -4,10 +4,10 @@ import { prisma } from "@/lib/prisma";
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { projectId: string } }
+  { params }: { params: Promise<{ projectId: string }> }
 ) {
   try {
-    const projectId = params.projectId;
+    const { projectId } = await params;
     const project = await prisma.project.findUnique({
       where: { id: projectId },
       select: { webhookSecret: true, ownerId: true, tenantId: true },
