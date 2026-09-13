@@ -147,6 +147,26 @@ export async function POST(req: Request) {
       );
     }
 
+    // Constraint 1: Exact title uniqueness (prevent idea repetition)
+    const existingTitle = await prisma.project.findFirst({
+      where: { tenantId: membership.tenantId, title: { equals: data.title, mode: 'insensitive' } },
+      select: { id: true }
+    });
+    if (existingTitle) {
+      return NextResponse.json({ error: "An idea with this exact title already exists. We don't allow duplicate ideas to ensure uniqueness." }, { status: 409 });
+    }
+
+    // Constraint 2: GitHub repo uniqueness (1 repo = 1 idea)
+    if (data.githubUrl) {
+      const existingRepo = await prisma.project.findFirst({
+        where: { tenantId: membership.tenantId, githubUrl: data.githubUrl },
+        select: { id: true }
+      });
+      if (existingRepo) {
+        return NextResponse.json({ error: "This GitHub repository is already attached to another idea. One repository can only be used for one idea." }, { status: 409 });
+      }
+    }
+
     // Slug uniqueness is per tenant, enforced by a database constraint. The
     // retry loop handles the race between two people publishing the same title.
     const base = slugify(data.title);
