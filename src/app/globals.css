@@ -1,0 +1,282 @@
+@import "tailwindcss";
+
+/* ═══════════════════════════════════════════════════════
+   THE LEDGER — design tokens v2
+   See docs/design/ART-DIRECTION-V2.md
+   Fonts are declared ONLY in src/app/layout.tsx via next/font.
+   Never redeclare --font-* here.
+   ═══════════════════════════════════════════════════════ */
+
+@theme {
+  /* Ledger names — use these in new code */
+  --color-paper-0: var(--paper-0);
+  --color-paper-1: var(--paper-1);
+  --color-paper-2: var(--paper-2);
+
+  --color-ink-900: var(--ink-900);
+  --color-ink-700: var(--ink-700);
+  --color-ink-500: var(--ink-500);
+  --color-ink-300: var(--ink-300);
+
+  --color-rule: var(--rule);
+  --color-rule-soft: var(--rule-soft);
+
+  --color-stamp-verified: var(--stamp-verified);
+  --color-stamp-pending: var(--stamp-pending);
+  --color-stamp-rejected: var(--stamp-rejected);
+  --color-stamp-archived: var(--stamp-archived);
+
+  /* Legacy aliases — existing components read these. Remapped onto the
+     Ledger palette so the whole app re-skins without touching 140 files.
+     Do not use these names in new code. */
+  --color-surface-base: var(--paper-0);
+  --color-surface-raised: var(--paper-1);
+  --color-surface-overlay: var(--paper-2);
+  --color-surface-float: var(--paper-2);
+
+  --color-brand-primary: var(--brand-primary);
+  --color-brand-secondary: var(--stamp-verified);
+  --color-brand-accent: var(--stamp-pending);
+  --color-brand-success: var(--stamp-verified);
+  --color-brand-warning: var(--stamp-pending);
+  --color-brand-danger: var(--stamp-rejected);
+
+  --color-text-primary: var(--ink-900);
+  --color-text-secondary: var(--ink-700);
+  --color-text-muted: var(--ink-500);
+
+  --color-border-subtle: var(--rule-soft);
+  --color-border-default: var(--rule);
+  --color-border-strong: var(--ink-300);
+
+  --font-sans: var(--font-body);
+  --font-display: var(--font-display);
+  --font-mono: var(--font-mono);
+
+  --radius-sm: var(--r-sm);
+  --radius-md: var(--r-md);
+  --radius-lg: var(--r-lg);
+  --radius-xl: var(--r-lg);
+  --radius-full: var(--r-full);
+}
+
+@layer base {
+  :root {
+    color-scheme: light;
+
+    /* Radiant Sky Theme - Bright, Colorful, No White */
+    --paper-0: #E0F2FE; /* Sky 100 - Bright airy blue base */
+    --paper-1: #F0F9FF; /* Sky 50 - Slightly lighter tinted blue for cards */
+    --paper-2: #BAE6FD; /* Sky 200 - Interactive surfaces */
+
+    --ink-900: #0F172A; /* Slate 900 */
+    --ink-700: #334155; /* Slate 700 */
+    --ink-500: #64748B; /* Slate 500 */
+    --ink-300: #CBD5E1; /* Slate 300 */
+
+    --rule: #E2E8F0;      /* Slate 200 */
+    --rule-soft: #F1F5F9; /* Slate 100 */
+
+    --stamp-verified: #0284C7; /* Sky 600 - Professional Blue */
+    --stamp-pending: #D97706;  /* Amber 600 */
+    --stamp-rejected: #DC2626; /* Red 600 */
+    --stamp-archived: #64748B; /* Slate 500 */
+
+    /* Radius — clean and modern */
+    --r-sm: 6px;
+    --r-md: 8px;
+    --r-lg: 12px;
+    --r-full: 9999px;
+
+    /* Elevation — diffuse, premium shadows */
+    --e-1: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+    --e-2: 0 4px 6px -1px rgb(0 0 0 / 0.05), 0 2px 4px -2px rgb(0 0 0 / 0.05);
+    --e-3: 0 20px 25px -5px rgb(0 0 0 / 0.05), 0 8px 10px -6px rgb(0 0 0 / 0.05);
+
+    /* Motion */
+    --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+    --ease-stamp: cubic-bezier(0.34, 1.4, 0.64, 1);
+    --d-micro: 150ms;
+    --d-component: 200ms;
+    --d-page: 300ms;
+
+    /* Layout */
+    --container: 1240px;
+    --measure: 68ch;
+    --rail-left: 260px;
+    --rail-right: 320px;
+  }
+
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --paper-0: #020617; /* Slate 950 */
+    --paper-1: #0F172A; /* Slate 900 */
+    --paper-2: #1E293B; /* Slate 800 */
+
+    --ink-900: #F8FAFC; 
+    --ink-700: #CBD5E1; 
+    --ink-500: #94A3B8; 
+    --ink-300: #475569; 
+
+    --rule: #334155; 
+    --rule-soft: #1E293B; 
+
+    --stamp-verified: #38BDF8; /* Sky 400 */
+    --stamp-pending: #FBBF24;  /* Amber 400 */
+    --stamp-rejected: #F87171; /* Red 400 */
+    --stamp-archived: #94A3B8; 
+
+    --e-1: 0 1px 0 var(--rule);
+    --e-2: 0 4px 6px -1px rgb(0 0 0 / 0.3);
+    --e-3: 0 20px 25px -5px rgb(0 0 0 / 0.4);
+  }
+}
+
+@layer base {
+  * {
+    border-color: var(--rule);
+  }
+
+  body {
+    background-color: var(--paper-0);
+    background-image: 
+      radial-gradient(at 0% 0%, hsla(199, 89%, 48%, 0.12) 0px, transparent 50%),
+      radial-gradient(at 100% 0%, hsla(328, 100%, 54%, 0.1) 0px, transparent 50%),
+      radial-gradient(at 100% 100%, hsla(43, 100%, 50%, 0.1) 0px, transparent 50%),
+      radial-gradient(at 0% 100%, hsla(253, 100%, 50%, 0.1) 0px, transparent 50%);
+    background-attachment: fixed;
+    color: var(--ink-900);
+    font-family: var(--font-body);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display);
+    font-weight: 500;
+    letter-spacing: -0.02em;
+  }
+
+  /* Any value that can change is tabular, so columns do not jitter */
+  [data-numeric], .tabular {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+}
+
+@layer utilities {
+  @keyframes fade-in-up {
+    0% { opacity: 0; transform: translateY(12px); }
+    100% { opacity: 1; transform: translateY(0); }
+  }
+
+  .animate-fade-in-up {
+    animation: fade-in-up var(--d-page) var(--ease-out) both;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════
+   LEDGER UTILITIES
+   ═══════════════════════════════════════════════════════ */
+
+/* Principle 2 — ink is earned. Visual weight = evidence strength. */
+.ink-verified {
+  color: var(--ink-900);
+  border-color: var(--rule);
+  border-style: solid;
+}
+.ink-pending {
+  color: var(--ink-500);
+  border-color: var(--rule);
+  border-style: dashed;
+}
+.ink-unevidenced {
+  color: var(--ink-300);
+  border-color: transparent;
+}
+
+/* Mono metadata voice: timestamps, SHAs, URLs, handles */
+.meta {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1.4;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-500);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Prose measure — never let a paragraph run wider than this */
+.measure {
+  max-width: var(--measure);
+}
+
+/* Paper tooth. Landing page only, 3% max. */
+.paper-tooth {
+  background-image: radial-gradient(circle, rgb(20 22 26 / 0.03) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+/* Level 1 micro — 120ms */
+.press-effect {
+  transition: transform var(--d-micro) var(--ease-out);
+}
+.press-effect:active {
+  transform: scale(0.98);
+}
+
+/* Level 4 — the stamp lands. Work becoming record. */
+@keyframes stamp-land {
+  0%   { transform: scale(1.6) rotate(-4deg); opacity: 0; }
+  60%  { transform: scale(0.96) rotate(1deg); opacity: 1; }
+  100% { transform: scale(1) rotate(0deg); opacity: 1; }
+}
+.stamp-land {
+  animation: stamp-land 420ms var(--ease-stamp) both;
+}
+
+/* ═══════════════════════════════════════════════════════
+   SCROLLBAR / SELECTION / FOCUS
+   ═══════════════════════════════════════════════════════ */
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--rule);
+  border: 3px solid var(--paper-0);
+  border-radius: var(--r-full);
+}
+::-webkit-scrollbar-thumb:hover { background: var(--ink-300); }
+* { scrollbar-width: thin; scrollbar-color: var(--rule) transparent; }
+
+::selection {
+  background: var(--ink-900);
+  color: var(--paper-0);
+}
+
+:focus-visible {
+  outline: 2px solid var(--ink-900);
+  outline-offset: 2px;
+}
+
+/* ═══════════════════════════════════════════════════════
+   REDUCED MOTION — enforced at the token layer so no
+   component can opt out. Acceptance test: turn motion off,
+   review every screen, lose nothing.
+   ═══════════════════════════════════════════════════════ */
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --d-micro: 1ms;
+    --d-component: 1ms;
+    --d-page: 1ms;
+  }
+  *, *::before, *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+  .press-effect:active { transform: none; }
+}

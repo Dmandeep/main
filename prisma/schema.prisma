@@ -1,0 +1,1322 @@
+// IdeaSpace — Campus Innovation Ledger
+//
+// Datastore frozen on PostgreSQL by docs/adr/0001-database-postgres.md.
+// Domain shaped by the discussion recorded in docs/design/CAMPUS-ECOSYSTEM.md:
+// verified contribution -> standing -> (phase 3) access to scarce resources.
+//
+// v1 is RECORD-ONLY. Entitlement tables are modelled so phase 3 slots in
+// without a migration of the ledger itself, but nothing spends standing yet.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "mongodb"
+  url       = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────
+// TENANCY
+// Pilot scope is one department. A Tenant is therefore a department
+// inside an Institution, not the whole college — that keeps roster size
+// honest and lets a second department onboard without a data migration.
+// ─────────────────────────────────────────────────────────────
+
+model Institution {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  name      String
+  /// Email domains that may self-register, e.g. ["lendi.org","lendi.edu.in"]
+  domains   String[]
+  createdAt DateTime @default(now())
+
+  tenants Tenant[]
+
+  @@map("institutions")
+}
+
+model Tenant {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  institutionId String @db.ObjectId
+  /// e.g. "Computer Science & Engineering"
+  name          String
+  /// URL-safe, unique inside the institution
+  slug          String
+  status        TenantStatus @default(ACTIVE)
+  /// Per-campus policy: point caps, verification SLA hours, quota reserved
+  /// for low-standing students, and so on.
+  settings      Json    @default("{}")
+  createdAt     DateTime @default(now())
+
+  institution     Institution      @relation(fields: [institutionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  memberships     Membership[]
+  projects        Project[]
+  bounties        Bounty[]
+  events          CampusEvent[]
+  seasons         Season[]
+  communities     Community[]
+  reputationEvents ReputationEvent[]
+  auditLogs       AuditLog[]
+  accessRequests  AccessRequest[]
+
+  @@unique([institutionId, slug])
+  @@map("tenants")
+}
+
+enum TenantStatus {
+  ACTIVE
+  PILOT
+  SUSPENDED
+}
+
+// ─────────────────────────────────────────────────────────────
+// IDENTITY
+// ─────────────────────────────────────────────────────────────
+
+model User {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  email          String    @unique
+  name           String
+  username       String    @unique
+  passwordHash   String?
+  avatarUrl      String?
+  bio            String?
+  githubUsername String?
+  githubToken    String?
+  githubAvatarUrl String?
+  githubConnected Boolean  @default(false)
+  /// Set only after the GitHub OAuth link is verified. An unverified handle
+  /// must never be treated as proof that the account belongs to this user.
+  githubVerified Boolean   @default(false)
+
+  /// Steam-style profile customisation.
+  headline    String?
+  bannerUrl   String?
+  accentColor String?
+  pronouns    String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  lastLoginAt    DateTime?
+
+  memberships        Membership[]
+  accounts           Account[]
+  sessions           Session[]
+  ownedProjects      Project[]           @relation("ProjectOwner")
+  projectMemberships ProjectMembership[]
+  submittedEvidence  Evidence[]          @relation("EvidenceCreator")
+  reviews            VerificationReview[]
+  reputationEvents   ReputationEvent[]
+  bountiesPosted     Bounty[]            @relation("BountyPoster")
+  bountySubmissions  BountySubmission[]
+  demandVotes        EventDemandVote[]
+  registrations      EventRegistration[]
+  mentorOffers       MentorOffer[]
+  votes              Vote[]
+  notifications      Notification[]
+  communityMemberships CommunityMember[]
+  messages           CommunityMessage[]
+  messageReports     MessageReport[]
+  posts              Post[]
+  profileLinks       ProfileLink[]
+  profileTags        ProfileTag[]
+  auditLogs          AuditLog[]
+  accessRequestsReviewed AccessRequest[] @relation("AccessRequestReviewer")
+
+  @@map("users")
+}
+
+model Membership {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId String @db.ObjectId
+  userId String @db.ObjectId
+  role       Role       @default(STUDENT)
+  /// Free text: "CSE", "ECE". Reporting groups by this.
+  department String?
+  /// Year of study at join time; null for faculty and alumni.
+  year       Int?
+  status     MemberStatus @default(ACTIVE)
+  joinedAt   DateTime   @default(now())
+  leftAt     DateTime?
+
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user     User   @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  standing Standing?
+
+  /// One membership per person per tenant. This is the constraint the Mongo
+  /// model could only enforce in application code.
+  @@unique([tenantId, userId])
+  @@index([tenantId, role])
+  @@map("memberships")
+}
+
+enum Role {
+  STUDENT
+  FACULTY
+  /// Approves memberships and allocates scarce resources. Deliberately cannot
+  /// verify evidence — see src/lib/authz/permissions.ts for the four-eyes
+  /// reasoning.
+  HOD
+  ADMIN
+  MENTOR
+  ALUMNI
+}
+
+enum MemberStatus {
+  ACTIVE
+  GRADUATED
+  INACTIVE
+  SUSPENDED
+}
+
+// NextAuth adapter tables
+model Account {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  userId String @db.ObjectId
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  sessionToken String   @unique
+  userId String @db.ObjectId
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// ─────────────────────────────────────────────────────────────
+// PROJECTS
+// ─────────────────────────────────────────────────────────────
+
+model Project {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId String @db.ObjectId
+  ownerId String @db.ObjectId
+  slug     String
+  title    String
+  tagline  String?
+  problem  String
+  solution String
+
+  track        String
+  tags         String[]
+  skillsNeeded String[]
+  coverImage   String?
+  githubUrl    String?
+  githubRepoOwner String?
+  githubRepoName  String?
+  githubRepoVerified Boolean @default(false)
+  webhookId       String?
+  webhookSecret   String?
+  demoUrl      String?
+
+  status     ProjectStatus     @default(DRAFT)
+  visibility ProjectVisibility @default(CAMPUS)
+
+  /// Form-completeness score, 0-100. NOT a judgement of the idea.
+  /// Named to match what it measures; see ART-DIRECTION-V2 §8.5.
+  briefCompleteness Int @default(0)
+
+  /// Denormalised counters, both derivable. Kept so the feed can sort without
+  /// a join; reconciled by the same recompute job that rebuilds standings.
+  upvoteCount        Int @default(0)
+  verifiedEvidenceCount Int @default(0)
+
+  /// Set when this project continues an archived one. The revival carries
+  /// the predecessor's ledger forward rather than starting from zero.
+  revivedFromId String? @db.ObjectId
+
+  archivedAt DateTime?
+  /// Required before a project may be archived. Postmortems are the
+  /// institutional-memory payload.
+  postmortem String?
+  outcome    ProjectOutcome?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant      Tenant              @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  owner       User                @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  revivedFrom Project?            @relation("ProjectRevival", fields: [revivedFromId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  revivals    Project[]           @relation("ProjectRevival")
+  members     ProjectMembership[]
+  milestones  Milestone[]
+  evidence    Evidence[]
+  joinRequests JoinRequest[]
+  votes       Vote[]
+  communities Community[]
+  posts       Post[]
+
+  @@unique([tenantId, slug])
+  @@index([tenantId, status])
+  @@index([tenantId, track])
+  @@map("projects")
+}
+
+enum ProjectStatus {
+  DRAFT
+  DISCOVERY
+  BUILDING
+  SHIPPED
+  ARCHIVED
+  REJECTED
+}
+
+enum ProjectVisibility {
+  PRIVATE
+  CAMPUS
+  PUBLIC
+}
+
+enum ProjectOutcome {
+  SHIPPED
+  PAUSED
+  FAILED
+  PIVOTED
+}
+
+model ProjectMembership {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  projectId String @db.ObjectId
+  userId String @db.ObjectId
+  role      String
+  joinedAt  DateTime @default(now())
+  /// Null while active. Contribution is scored over the interval a person was
+  /// actually on the team, so leaving must be recorded, not deleted.
+  leftAt    DateTime?
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user    User    @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([projectId, userId])
+  @@map("project_memberships")
+}
+
+model JoinRequest {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  projectId String @db.ObjectId
+  userId    String
+  role      String
+  message   String?
+  status    JoinRequestStatus @default(PENDING)
+  createdAt DateTime          @default(now())
+  decidedAt DateTime?
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([projectId, userId])
+  @@map("join_requests")
+}
+
+enum JoinRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  WITHDRAWN
+}
+
+model Milestone {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  projectId String @db.ObjectId
+  ordinal     Int
+  title       String
+  description String?
+  dueAt       DateTime?
+  completedAt DateTime?
+
+  project  Project    @relation(fields: [projectId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  evidence Evidence[]
+
+  @@unique([projectId, ordinal])
+  @@map("milestones")
+}
+
+// ─────────────────────────────────────────────────────────────
+// EVIDENCE — the core object
+//
+// Shaped after Open Badges 3.0 / W3C Verifiable Credentials: a claim is
+// worthless without issuer, criteria, evidence artefacts and a timestamp.
+// ─────────────────────────────────────────────────────────────
+
+model Evidence {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  projectId   String @db.ObjectId
+  milestoneId String? @db.ObjectId
+  creatorId   String @db.ObjectId
+
+  title       String
+  description String?
+
+  sourceType SourceType
+  sourceUrl  String
+  /// Stable id at the source: commit SHA, PR number, deployment id.
+  /// Combined with sourceType this is what makes a submission non-duplicable.
+  sourceExternalId String?
+
+  /// When the artefact was produced at the source, as reported by the source.
+  producedAt DateTime?
+  /// When IdeaSpace fetched and hashed it.
+  capturedAt DateTime  @default(now())
+  /// SHA-256 of the normalised captured payload. Lets a reviewer years later
+  /// tell whether what they are looking at is what was verified.
+  contentHash String?
+  /// Which extractor produced `metadata`. Re-parsing old rows needs this.
+  parserVersion String @default("1")
+  /// 0.0-1.0 machine confidence that the artefact supports the claim.
+  /// Drives whether a human ever has to look at it.
+  extractionConfidence Float?
+  metadata Json @default("{}")
+
+  state EvidenceState @default(SUBMITTED)
+
+  // Gamification Metrics (0-100 total)
+  metricLinesChanged Float @default(0)
+  metricCodeQuality  Float @default(0)
+  metricCodeSummary  Float @default(0)
+  bonusPoints        Float @default(0)
+  overallScore       Float @default(0)
+  codeSummary        String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project   Project              @relation(fields: [projectId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  milestone Milestone?           @relation(fields: [milestoneId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  creator   User                 @relation("EvidenceCreator", fields: [creatorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  reviews   VerificationReview[]
+
+  /// The same artefact cannot be submitted twice to the same project.
+  /// Point-farming by resubmission is a constraint violation, not a policy.
+  @@unique([projectId, sourceType, sourceExternalId])
+  @@index([projectId, state])
+  @@index([state, createdAt])
+  @@map("evidence")
+}
+
+enum SourceType {
+  GITHUB_COMMIT
+  GITHUB_PR
+  GITHUB_RELEASE
+  DEPLOYED_URL
+  DESIGN_FILE
+  DOCUMENT
+  PRESENTATION
+  RESEARCH_OUTPUT
+  MEDIA
+  EXTERNAL_VALIDATION
+}
+
+enum EvidenceState {
+  DRAFT
+  SUBMITTED
+  MACHINE_VERIFIED
+  UNDER_REVIEW
+  VERIFIED
+  REJECTED
+  EXPIRED
+}
+
+model VerificationReview {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  evidenceId String @db.ObjectId
+  reviewerId String @db.ObjectId
+
+  decision  ReviewDecision
+  /// Reviewer's own confidence. Low-confidence approvals are what the random
+  /// audit samples first.
+  confidence Float?
+  /// Required on REJECTED. A rejection a student cannot understand is a
+  /// rejection they will appeal, and rightly.
+  rationale String?
+  decidedAt DateTime @default(now())
+
+  /// Four-eyes: a second reviewer on high-stakes items. Deliberately a
+  /// separate row, not a boolean, so both decisions keep their own provenance.
+  supersedesId String? @db.ObjectId
+
+  evidence Evidence @relation(fields: [evidenceId], references: [id], onDelete: Cascade)
+  reviewer User     @relation(fields: [reviewerId], references: [id])
+  supersedes VerificationReview? @relation("ReviewChain", fields: [supersedesId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  supersededBy VerificationReview[] @relation("ReviewChain")
+
+  @@index([reviewerId, decidedAt])
+  @@map("verification_reviews")
+}
+
+enum ReviewDecision {
+  APPROVED
+  REJECTED
+  NEEDS_INFO
+  ESCALATED
+}
+
+// ─────────────────────────────────────────────────────────────
+// STANDING — append-only ledger plus a materialized balance.
+//
+// A mutable points total is not an acceptable source of truth: it cannot be
+// audited, cannot be explained, and cannot be recomputed after a bug.
+// ─────────────────────────────────────────────────────────────
+
+model Season {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId String @db.ObjectId
+  /// e.g. "2026 Odd Semester"
+  name      String
+  startsAt  DateTime
+  endsAt    DateTime
+  isCurrent Boolean  @default(false)
+
+  tenant           Tenant            @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  reputationEvents ReputationEvent[]
+  standings        Standing[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId, isCurrent])
+  @@map("seasons")
+}
+
+model ReputationEvent {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId String @db.ObjectId
+  userId String @db.ObjectId
+  seasonId String @db.ObjectId
+
+  type   ReputationEventType
+  /// Signed. Reversals are negative rows, never deletions.
+  points Int
+
+  /// What caused this, so the Provenance Drawer can link back to it.
+  sourceType String
+  sourceId   String
+
+  /// Collision key. Awarding the same thing twice is a constraint violation
+  /// rather than a bug someone notices in a leaderboard three weeks later.
+  idempotencyKey String
+
+  /// Set when a later row reverses this one (abuse finding, appeal upheld).
+  reversedById String? @db.ObjectId
+  note         String?
+
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  season Season @relation(fields: [seasonId], references: [id])
+  reversedBy ReputationEvent? @relation("Reversal", fields: [reversedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  reverses   ReputationEvent[] @relation("Reversal")
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId, userId, seasonId])
+  @@index([tenantId, createdAt])
+  @@map("reputation_events")
+}
+
+enum ReputationEventType {
+  EVIDENCE_VERIFIED
+  MILESTONE_COMPLETED
+  PROJECT_SHIPPED
+  BOUNTY_COMPLETED
+  WORKSHOP_DELIVERED
+  PEER_REVIEW_COMPLETED
+  MENTORSHIP_DELIVERED
+  PROJECT_REVIVED
+  MANUAL_ADJUSTMENT
+  ABUSE_REVERSAL
+}
+
+/// Materialized balance. Derived — never written by hand, always recomputable
+/// from reputation_events. If these two ever disagree, the ledger wins.
+model Standing {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  membershipId String @unique @db.ObjectId
+  seasonId String @db.ObjectId
+
+  points     Int @default(0)
+  /// Dense rank inside the tenant for this season, recomputed on a schedule.
+  rank       Int?
+  tier       StandingTier @default(BRONZE)
+
+  /// Denormalised counters, all derivable, kept for cheap list rendering.
+  verifiedEvidenceCount Int @default(0)
+  projectsShipped       Int @default(0)
+  bountiesCompleted     Int @default(0)
+
+  recomputedAt DateTime @default(now())
+
+  membership Membership @relation(fields: [membershipId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  season     Season     @relation(fields: [seasonId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([seasonId, points])
+  @@map("standings")
+}
+
+enum StandingTier {
+  BRONZE
+  SILVER
+  GOLD
+  PLATINUM
+  ELITE
+}
+
+// ─────────────────────────────────────────────────────────────
+// BOUNTIES — how the institution, faculty and alumni inject demand.
+// Completing one produces Evidence, so bounties feed the same ledger.
+// No money in v1: rewards are points and (phase 3) entitlements.
+// ─────────────────────────────────────────────────────────────
+
+model Bounty {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId String @db.ObjectId
+  posterId String @db.ObjectId
+
+  title       String
+  description String
+  kind        BountyKind
+  track       String?
+  skillsNeeded String[]
+
+  rewardPoints Int @default(0)
+  /// Phase 3: what completing this grants beyond points.
+  rewardEntitlementId String?
+
+  /// Reserved for students below the low-standing threshold, so bounties do
+  /// not become another channel that only the already-ranked can use.
+  reservedForNewcomers Boolean @default(false)
+
+  maxClaims Int          @default(1)
+  status    BountyStatus @default(OPEN)
+  opensAt   DateTime     @default(now())
+  closesAt  DateTime?
+
+  createdAt DateTime @default(now())
+
+  tenant      Tenant             @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  poster      User               @relation("BountyPoster", fields: [posterId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  submissions BountySubmission[]
+
+  @@index([tenantId, status])
+  @@map("bounties")
+}
+
+enum BountyKind {
+  BUILD
+  RESEARCH
+  DESIGN
+  MENTOR
+  REVIEW
+  STARTER
+}
+
+enum BountyStatus {
+  DRAFT
+  OPEN
+  IN_REVIEW
+  AWARDED
+  CLOSED
+  CANCELLED
+}
+
+model BountySubmission {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  bountyId String @db.ObjectId
+  userId String @db.ObjectId
+
+  summary  String
+  /// Evidence ids backing this submission. A bounty submission with no
+  /// evidence cannot be awarded.
+  evidenceIds String[] @db.ObjectId
+
+  status      BountySubmissionStatus @default(SUBMITTED)
+  reviewNote  String?
+  awardedAt   DateTime?
+  submittedAt DateTime @default(now())
+
+  bounty Bounty @relation(fields: [bountyId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user   User   @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([bountyId, userId])
+  @@map("bounty_submissions")
+}
+
+enum BountySubmissionStatus {
+  SUBMITTED
+  UNDER_REVIEW
+  AWARDED
+  REJECTED
+  WITHDRAWN
+}
+
+// ─────────────────────────────────────────────────────────────
+// CAMPUS EVENTS — workshops, hackathons, tech events.
+//
+// Demand voting is one person one vote: standing must not buy influence over
+// what the campus runs, or first-years never get the sessions they need.
+// Standing affects seat priority in phase 3, never vote weight.
+// ─────────────────────────────────────────────────────────────
+
+model CampusEvent {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId String @db.ObjectId
+
+  title       String
+  description String
+  kind        EventKind
+  track       String?
+
+  /// PROPOSED events are demand signals with no date yet. They become
+  /// SCHEDULED when a faculty owner picks them up.
+  status EventStatus @default(PROPOSED)
+
+  startsAt DateTime?
+  endsAt   DateTime?
+  location String?
+  capacity Int?
+
+  /// Fraction of capacity held for students below the low-standing threshold.
+  /// Stored per event so a campus can tune it; defaults to 40%.
+  newcomerQuotaPercent Int @default(40)
+
+  /// Phase 3: standing required for a non-quota seat. Null means open to all,
+  /// which is what every v1 event is.
+  minStandingPoints Int?
+
+  createdAt DateTime @default(now())
+
+  tenant        Tenant              @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  demandVotes   EventDemandVote[]
+  registrations EventRegistration[]
+  communities   Community[]
+
+  @@index([tenantId, status, startsAt])
+  @@map("campus_events")
+}
+
+enum EventKind {
+  WORKSHOP
+  HACKATHON
+  TALK
+  BOOTCAMP
+  DEMO_DAY
+  REVIEW_CLINIC
+}
+
+enum EventStatus {
+  PROPOSED
+  SCHEDULED
+  LIVE
+  COMPLETED
+  CANCELLED
+}
+
+model EventDemandVote {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  eventId String @db.ObjectId
+  userId String @db.ObjectId
+
+  /// Optional context: what the voter wants covered. This is the part faculty
+  /// actually read when deciding whether to run the session.
+  note String?
+
+  createdAt DateTime @default(now())
+
+  event CampusEvent @relation(fields: [eventId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user  User        @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  /// One person, one vote. Enforced by the database, not by a check in a
+  /// route handler that someone will forget on the next endpoint.
+  @@unique([eventId, userId])
+  @@map("event_demand_votes")
+}
+
+model EventRegistration {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  eventId String @db.ObjectId
+  userId String @db.ObjectId
+
+  /// How this seat was obtained. Needed to prove the newcomer quota was
+  /// actually honoured when someone asks.
+  allocation AllocationBasis @default(OPEN)
+  status     RegistrationStatus @default(REGISTERED)
+  /// Position when the event is oversubscribed.
+  waitlistPosition Int?
+
+  attendedAt  DateTime?
+  registeredAt DateTime @default(now())
+
+  event CampusEvent @relation(fields: [eventId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user  User        @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([eventId, userId])
+  @@map("event_registrations")
+}
+
+enum AllocationBasis {
+  OPEN
+  NEWCOMER_QUOTA
+  STANDING_PRIORITY
+  FACULTY_OVERRIDE
+}
+
+enum RegistrationStatus {
+  REGISTERED
+  WAITLISTED
+  ATTENDED
+  NO_SHOW
+  CANCELLED
+}
+
+// ─────────────────────────────────────────────────────────────
+// ENTITLEMENTS — phase 3. Modelled now, unused in v1.
+// Kept in the schema so the ledger does not need reshaping later.
+// ─────────────────────────────────────────────────────────────
+
+model Entitlement {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId String @db.ObjectId
+
+  name        String
+  description String
+  kind        EntitlementKind
+  /// Null means unlimited. Most real ones are not.
+  totalUnits  Int?
+
+  grants EntitlementGrant[]
+
+  @@map("entitlements")
+}
+
+enum EntitlementKind {
+  EVENT_SEAT
+  LAB_ACCESS
+  MENTOR_HOURS
+  EQUIPMENT_BUDGET
+  TRAVEL_SUPPORT
+  INCUBATION_SLOT
+  EXTERNAL_REPRESENTATION
+}
+
+model EntitlementGrant {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  entitlementId String @db.ObjectId
+  userId        String
+
+  units      Int      @default(1)
+  basis      AllocationBasis @default(OPEN)
+  /// Who approved it and why. An algorithm may propose; a person decides.
+  decidedById String?
+  rationale   String?
+
+  grantedAt DateTime  @default(now())
+  expiresAt DateTime?
+  consumedAt DateTime?
+
+  entitlement Entitlement @relation(fields: [entitlementId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([userId, grantedAt])
+  @@map("entitlement_grants")
+}
+
+// ─────────────────────────────────────────────────────────────
+// MENTORSHIP — the junior/senior/alumni/faculty path.
+// A bounded, countable offer, not a directory listing. Vague asks are
+// why alumni programmes decay.
+// ─────────────────────────────────────────────────────────────
+
+model MentorOffer {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  mentorId String @db.ObjectId
+
+  topic      String
+  /// Hours offered this month. Bounded so the ask is answerable.
+  hoursOffered Int  @default(1)
+  hoursUsed    Int  @default(0)
+  isOpen       Boolean @default(true)
+
+  createdAt DateTime @default(now())
+
+  mentor User @relation(fields: [mentorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([mentorId, isOpen])
+  @@map("mentor_offers")
+}
+
+// ─────────────────────────────────────────────────────────────
+// AUDIT
+// ─────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId String @db.ObjectId
+  actorId  String? @db.ObjectId
+
+  action     String
+  targetType String
+  targetId   String
+  /// Before/after for anything that changed a decision or a score.
+  diff       Json    @default("{}")
+  ip         String?
+  createdAt  DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  actor  User?  @relation(fields: [actorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([tenantId, createdAt])
+  @@index([targetType, targetId])
+  @@map("audit_logs")
+}
+
+// ─────────────────────────────────────────────────────────────
+// SIGNALS
+// ─────────────────────────────────────────────────────────────
+
+model Vote {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  projectId String @db.ObjectId
+  userId String @db.ObjectId
+  createdAt DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user    User    @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  /// One vote per person per project. Self-voting is blocked in the service
+  /// layer; vote rings are caught by audit, not by this constraint.
+  @@unique([projectId, userId])
+  @@index([projectId])
+  @@map("votes")
+}
+
+model Notification {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId  String @db.ObjectId
+  userId String @db.ObjectId
+
+  type    NotificationType
+  title   String
+  body    String
+  /// Where clicking it goes. A notification with no destination is noise.
+  href    String?
+  isRead  Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  readAt    DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([userId, isRead, createdAt])
+  @@map("notifications")
+}
+
+enum NotificationType {
+  JOIN_REQUEST
+  JOIN_DECISION
+  EVIDENCE_VERIFIED
+  EVIDENCE_REJECTED
+  REVIEW_ASSIGNED
+  BOUNTY_AWARDED
+  EVENT_SEAT_CONFIRMED
+  EVENT_WAITLIST_PROMOTED
+  MENTION
+  SYSTEM
+}
+
+// ─────────────────────────────────────────────────────────────
+// ROSTER ONBOARDING
+//
+// Students fill a Google Form; an admin imports the responses. The import
+// creates the seat, never the credential. See docs/design/ROSTER-ONBOARDING.md.
+// ─────────────────────────────────────────────────────────────
+
+model RosterImport {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId String @db.ObjectId
+  actorId  String? @db.ObjectId
+
+  /// Original filename, for the admin to recognise which Form export this was.
+  filename  String
+  rowCount  Int
+  created   Int    @default(0)
+  invited   Int    @default(0)
+  skipped   Int    @default(0)
+  conflicts Int    @default(0)
+
+  /// Per-row outcome, so an import can be explained months later without
+  /// re-uploading the file.
+  report Json @default("{}")
+
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+  @@map("roster_imports")
+}
+
+model Invitation {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId String @db.ObjectId
+
+  email String
+  name  String
+  role  Role   @default(STUDENT)
+  department String?
+  year       Int?
+
+  /// SHA-256 of the single-use token. The plaintext token exists only in the
+  /// link sent to the student — a stolen database backup must not yield
+  /// usable invitations.
+  tokenHash String @unique
+
+  status    InvitationStatus @default(PENDING)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  acceptedAt DateTime?
+  /// The user created when this invitation was accepted.
+  acceptedById String?
+
+  @@unique([tenantId, email])
+  @@index([tenantId, status])
+  @@map("invitations")
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+  REVOKED
+}
+
+// ─────────────────────────────────────────────────────────────
+// ACCESS REQUESTS
+// ─────────────────────────────────────────────────────────────
+
+model AccessRequest {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId String @db.ObjectId
+  email           String
+  name            String
+  department      String?
+  year            Int?
+  rollNumber      String?
+  reason          String?
+  status          AccessRequestStatus @default(PENDING)
+  reviewedById String? @db.ObjectId
+  reviewedAt      DateTime?
+  rejectionReason String?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  tenant     Tenant  @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  reviewedBy User?   @relation("AccessRequestReviewer", fields: [reviewedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenantId, email])
+  @@index([email])
+  @@index([status])
+  @@map("access_requests")
+}
+
+enum AccessRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+
+// ─────────────────────────────────────────────────────────────
+// COMMUNITIES
+//
+// The only place people talk. There are deliberately no direct messages:
+// most campus harassment happens in private channels, and removing the
+// surface removes the problem class rather than policing it.
+//
+// v1 is encrypt-READY, not encrypted. Messages are stored server-side so
+// moderation and search work, and the UI never claims end-to-end encryption.
+// `envelope` and `contentType` exist so an MLS payload can be carried later
+// without migrating this table. See docs/design/CAMPUS-ECOSYSTEM.md.
+// ─────────────────────────────────────────────────────────────
+
+model Community {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId String @db.ObjectId
+
+  slug        String
+  name        String
+  description String
+  kind        CommunityKind
+  visibility  CommunityVisibility @default(CAMPUS)
+
+  /// Auto-created communities cannot be deleted by a student — a batch
+  /// channel disappearing would strand everyone in it.
+  isSystemManaged Boolean @default(false)
+
+  projectId String? @db.ObjectId
+  eventId String? @db.ObjectId
+  batchYear Int?
+
+  archivedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  tenant   Tenant             @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  project  Project?           @relation(fields: [projectId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  event    CampusEvent?       @relation(fields: [eventId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  members  CommunityMember[]
+  messages CommunityMessage[]
+  posts    Post[]
+
+  @@unique([tenantId, slug])
+  @@index([tenantId, kind])
+  @@index([projectId])
+  @@map("communities")
+}
+
+enum CommunityKind {
+  PROJECT
+  INTEREST
+  BATCH
+  EVENT
+  DEPARTMENT
+}
+
+enum CommunityVisibility {
+  CAMPUS
+  REQUEST_TO_JOIN
+  PRIVATE
+}
+
+model CommunityMember {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  communityId String @db.ObjectId
+  userId String @db.ObjectId
+
+  role       CommunityRole @default(MEMBER)
+  /// PENDING until a moderator approves, for REQUEST_TO_JOIN communities.
+  /// Defaults to ACTIVE so open communities and every existing row are
+  /// unaffected — asking for approval is the exception, not the rule.
+  status     CommunityMemberStatus @default(ACTIVE)
+  joinedAt   DateTime      @default(now())
+  leftAt     DateTime?
+  mutedUntil DateTime?
+  lastReadAt DateTime?
+
+  community Community @relation(fields: [communityId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user      User      @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([communityId, userId])
+  @@index([userId, leftAt])
+  @@map("community_members")
+}
+
+enum CommunityRole {
+  OWNER
+  MODERATOR
+  MEMBER
+}
+
+/// Membership status, kept separate from role.
+///
+/// Conflating the two — a PENDING "role" — would mean every place that asks
+/// "can this person moderate" has to also remember to ask "are they actually
+/// approved yet", which is exactly the kind of check that gets forgotten once.
+enum CommunityMemberStatus {
+  PENDING
+  ACTIVE
+}
+
+model CommunityMessage {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  communityId String @db.ObjectId
+  authorId String @db.ObjectId
+
+  body String
+
+  /// PLAINTEXT today. The column exists so an encrypted payload can be stored
+  /// under the same row shape once MLS is audited.
+  contentType MessageContentType @default(PLAINTEXT)
+  /// Reserved for the MLS ciphertext envelope. Null while v1 stores plaintext.
+  envelope    Bytes?
+
+  replyToId String? @db.ObjectId
+
+  /// Moderation is possible precisely because v1 is not end-to-end encrypted.
+  /// Removal keeps the row so the audit trail survives.
+  removedAt     DateTime?
+  removedById   String?
+  removedReason String?
+
+  editedAt  DateTime?
+  createdAt DateTime  @default(now())
+
+  community Community          @relation(fields: [communityId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  author    User               @relation(fields: [authorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  replyTo   CommunityMessage?  @relation("MessageThread", fields: [replyToId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  replies   CommunityMessage[] @relation("MessageThread")
+  reports   MessageReport[]
+
+  @@index([communityId, createdAt])
+  @@map("community_messages")
+}
+
+enum MessageContentType {
+  PLAINTEXT
+  MLS_CIPHERTEXT
+}
+
+model MessageReport {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  messageId String @db.ObjectId
+  reporterId String @db.ObjectId
+
+  reason       String
+  status       ReportStatus @default(OPEN)
+  reviewedById String?
+  reviewNote   String?
+  createdAt    DateTime  @default(now())
+  reviewedAt   DateTime?
+
+  message  CommunityMessage @relation(fields: [messageId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  reporter User             @relation(fields: [reporterId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  /// One open report per person per message; re-reporting is not a vote.
+  @@unique([messageId, reporterId])
+  @@index([status, createdAt])
+  @@map("message_reports")
+}
+
+enum ReportStatus {
+  OPEN
+  UPHELD
+  DISMISSED
+}
+
+// ─────────────────────────────────────────────────────────────
+// FEED — ranked on evidence and relevance, never on engagement.
+// ─────────────────────────────────────────────────────────────
+
+model Post {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId String @db.ObjectId
+  authorId String @db.ObjectId
+
+  body String
+  kind PostKind @default(UPDATE)
+
+  /// A post always points at something real. A post attached to nothing is a
+  /// status update, and this product does not need those.
+  projectId String? @db.ObjectId
+  communityId String? @db.ObjectId
+  bountyId    String?
+
+  pinnedAt  DateTime?
+  removedAt DateTime?
+  createdAt DateTime @default(now())
+
+  author    User       @relation(fields: [authorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  project   Project?   @relation(fields: [projectId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  community Community? @relation(fields: [communityId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([tenantId, createdAt])
+  @@index([communityId, createdAt])
+  @@map("posts")
+}
+
+enum PostKind {
+  UPDATE
+  MILESTONE
+  ASK_FOR_HELP
+  SHOWCASE
+  ANNOUNCEMENT
+}
+
+// ─────────────────────────────────────────────────────────────
+// PROFILES
+// A public identity a student wants to show, without letting a
+// self-reported handle render as a verified fact.
+// ─────────────────────────────────────────────────────────────
+
+model ProfileLink {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  userId String @db.ObjectId
+
+  platform LinkPlatform
+  handle   String
+
+  /// TRUE only where ownership was actually proven — today that means the
+  /// GitHub OAuth link. Everything else is a claim and renders as one.
+  isVerified Boolean   @default(false)
+  verifiedAt DateTime?
+
+  /// A public stat the student typed in. Never presented as verified.
+  statLabel String?
+  statValue String?
+
+  displayOrder Int      @default(0)
+  createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([userId, platform])
+  @@map("profile_links")
+}
+
+enum LinkPlatform {
+  GITHUB
+  LINKEDIN
+  LEETCODE
+  CODEFORCES
+  CODECHEF
+  HACKERRANK
+  GEEKSFORGEEKS
+  REDDIT
+  DISCORD
+  PERSONAL_SITE
+  X
+}
+
+model ProfileTag {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  userId String @db.ObjectId
+
+  label String
+  /// EARNED tags are issued by the system and cannot be self-assigned.
+  /// SELF tags are decoration the student chooses.
+  source    TagSource @default(SELF)
+  /// What produced an EARNED tag, so a tag can always explain itself.
+  sourceRef String?
+
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([userId, label])
+  @@map("profile_tags")
+}
+
+enum TagSource {
+  SELF
+  EARNED
+  COMMUNITY
+  FACULTY
+}

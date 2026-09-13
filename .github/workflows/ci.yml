@@ -1,0 +1,163 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npm run db:generate
+        env:
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+        env:
+          # Build-time placeholders. No real secret is needed to compile.
+          AUTH_SECRET: ci-placeholder-secret
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+
+  # Everything above runs without a database. These do not, and they are the
+  # checks that have actually caught things: the authorization matrix, the
+  # four-eyes separation, the rate limiter, and whether the seed can still
+  # demonstrate the product. Running them only by hand meant a regression in
+  # any of them would land on main unnoticed.
+  integration:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ci
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U ci -d ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+      REDIS_URL: redis://localhost:6379
+      AUTH_SECRET: ci-placeholder-secret-not-used-anywhere-real
+      AUTH_URL: http://localhost:3000
+      NEXTAUTH_URL: http://localhost:3000
+      AUDIT_BASE: http://localhost:3000
+      # Deliberately absent: ALLOW_DEV_AUTH. src/lib/auth.ts throws on boot if
+      # it is ever set in production, and this job runs a production server.
+      # The harnesses sign in with the seeded password instead.
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npm run db:generate
+
+      - name: Apply migrations
+        run: npx prisma migrate deploy
+
+      - name: Seed
+        run: npm run db:seed:all
+
+      # Runs first and needs no server: if the seed cannot demonstrate a
+      # surface, the HTTP checks below would pass while the product looked
+      # broken to a human.
+      - name: Seed can demonstrate every surface
+        run: npm run seed:check
+
+      - name: Build
+        run: npm run build
+
+      - name: Start the server
+        run: |
+          nohup npm start > /tmp/server.log 2>&1 &
+          echo "waiting for the server"
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:3000/api/auth/csrf > /dev/null; then
+              echo "up after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "server did not come up"
+          cat /tmp/server.log
+          exit 1
+
+      - name: Full-surface audit
+        run: npm run audit
+
+      - name: Cross-role matrix
+        run: npm run matrix
+
+      - name: Request to join, end to end
+        run: npx tsx prisma/.checks/verify-join-requests.mts
+
+      - name: Posting, end to end
+        run: npx tsx prisma/.checks/verify-posts.mts
+
+      - name: Background jobs, queued
+        run: npx tsx prisma/.checks/verify-queue.mts
+
+      - name: Background jobs, inline fallback
+        # The no-broker path is the one a single-box pilot actually runs, and
+        # it is the configuration nobody tests by hand.
+        run: REDIS_URL= npx tsx prisma/.checks/verify-queue.mts
+
+  dependencies:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Dependency audit
+        run: npm audit --audit-level=high
