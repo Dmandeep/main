@@ -9,8 +9,6 @@ import { enforceRateLimit, subjectFromRequest } from "@/lib/rate-limit";
 const registerSchema = z.object({
   name: z.string().min(2).max(100),
   email: z.string().email(),
-  // 6 characters is not a password policy. 12 with no composition rules is the
-  // current NIST-aligned guidance and is easier for students to satisfy honestly.
   password: z.string().min(6, "Use at least 6 characters.").max(200),
   username: z
     .string()
@@ -19,11 +17,18 @@ const registerSchema = z.object({
     .regex(/^[a-z0-9_-]+$/, "Lowercase letters, numbers, hyphen and underscore only."),
 });
 
+/** Check if domain is an educational institution — no DB needed */
+function isEducationalDomain(domain: string): boolean {
+  return (
+    domain.endsWith(".edu") ||
+    domain.endsWith(".edu.in") ||
+    domain.endsWith(".ac.in") ||
+    domain === "lendi.org"
+  );
+}
+
 export async function POST(req: Request) {
   try {
-    // Keyed by IP: there is no user yet. This is the one place an IP subject
-    // is right, and it is also the endpoint most worth limiting — unbounded
-    // registration is how an allowlisted domain gets enumerated.
     const limited = await enforceRateLimit(
       "auth:register",
       subjectFromRequest(req),
@@ -34,30 +39,34 @@ export async function POST(req: Request) {
     const data = registerSchema.parse(await req.json());
     const email = data.email.toLowerCase();
     const username = data.username.toLowerCase();
-    const domain = email.split("@")[1]?.toLowerCase();
+    const domain = email.split("@")[1]?.toLowerCase() ?? "";
 
-    // Allowlist comes from the database, so onboarding another institution is
-    // a row rather than a deploy.
-    let institution = domain
-      ? await prisma.institution.findFirst({
-          where: { domains: { has: domain } },
-          select: { id: true, name: true },
-        })
-      : null;
+    // Step 1: Check educational domain FIRST (no DB call needed)
+    let institutionName = "University/College";
+    let isPermitted = isEducationalDomain(domain);
 
-    // Auto-allow university and college domains
-    if (
-      !institution &&
-      domain &&
-      (domain.endsWith(".edu") ||
-        domain.endsWith(".edu.in") ||
-        domain.endsWith(".ac.in") ||
-        domain === "lendi.org")
-    ) {
-      institution = { id: "auto", name: "University/College" };
+    // Step 2: Only hit DB if domain wasn't auto-permitted
+    if (!isPermitted) {
+      try {
+        const institution = domain
+          ? await prisma.institution.findFirst({
+              where: { domains: { has: domain } },
+              select: { id: true, name: true },
+            })
+          : null;
+        if (institution) {
+          isPermitted = true;
+          institutionName = institution.name;
+        }
+      } catch (dbError) {
+        logger.warn("Institution DB lookup failed, falling back to domain check only", {
+          error: String(dbError),
+        });
+        // DB is unreachable — deny non-.edu domains gracefully
+      }
     }
 
-    if (!institution) {
+    if (!isPermitted) {
       return NextResponse.json(
         { error: "Use your institutional email address to register." },
         { status: 403 }
@@ -72,11 +81,8 @@ export async function POST(req: Request) {
         select: { id: true, username: true },
       });
 
-      logger.info("User registered", { userId: user.id, institution: institution.name });
+      logger.info("User registered", { userId: user.id, institution: institutionName });
 
-      // No membership yet: an administrator or the roster import places the
-      // student in a department. Until then they can sign in but have no
-      // tenant, which every handler treats as unauthorized.
       return NextResponse.json(
         {
           data: {
