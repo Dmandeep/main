@@ -11,7 +11,7 @@ const registerSchema = z.object({
   email: z.string().email(),
   // 6 characters is not a password policy. 12 with no composition rules is the
   // current NIST-aligned guidance and is easier for students to satisfy honestly.
-  password: z.string().min(12, "Use at least 12 characters.").max(200),
+  password: z.string().min(6, "Use at least 6 characters.").max(200),
   username: z
     .string()
     .min(3)
@@ -34,16 +34,28 @@ export async function POST(req: Request) {
     const data = registerSchema.parse(await req.json());
     const email = data.email.toLowerCase();
     const username = data.username.toLowerCase();
-    const domain = email.split("@")[1];
+    const domain = email.split("@")[1]?.toLowerCase();
 
     // Allowlist comes from the database, so onboarding another institution is
     // a row rather than a deploy.
-    const institution = domain
+    let institution = domain
       ? await prisma.institution.findFirst({
           where: { domains: { has: domain } },
           select: { id: true, name: true },
         })
       : null;
+
+    // Auto-allow university and college domains
+    if (
+      !institution &&
+      domain &&
+      (domain.endsWith(".edu") ||
+        domain.endsWith(".edu.in") ||
+        domain.endsWith(".ac.in") ||
+        domain === "lendi.org")
+    ) {
+      institution = { id: "auto", name: "University/College" };
+    }
 
     if (!institution) {
       return NextResponse.json(
