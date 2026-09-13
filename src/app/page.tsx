@@ -34,7 +34,7 @@ export default function LandingPage() {
     <div className="min-h-screen relative overflow-hidden bg-sky-50 selection:bg-indigo-500 selection:text-white">
       {/* OUTSTANDING Animated Watercolor/Mesh Gradient Background */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
-        <div className="absolute -top-[20%] -left-[10%] w-[70vw] h-[70vw] bg-rose-300 rounded-full mix-blend-multiply filter blur-[100px] opacity-70 animate-pulse" style={{ animationDuration: '8s' }} />
+        <div className="absolute -top-[20%] -left-[10%] w-[70vw] h-[70vw] bg-teal-300 rounded-full mix-blend-multiply filter blur-[100px] opacity-70 animate-pulse" style={{ animationDuration: '8s' }} />
         <div className="absolute top-[10%] -right-[10%] w-[70vw] h-[70vw] bg-sky-300 rounded-full mix-blend-multiply filter blur-[100px] opacity-70 animate-pulse" style={{ animationDuration: '10s', animationDelay: "1s" }} />
         <div className="absolute -bottom-[20%] left-[20%] w-[80vw] h-[80vw] bg-violet-300 rounded-full mix-blend-multiply filter blur-[100px] opacity-60 animate-pulse" style={{ animationDuration: '12s', animationDelay: "2s" }} />
       </div>
