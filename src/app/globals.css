@@ -64,23 +64,25 @@
   :root {
     color-scheme: light;
 
-    /* Radiant Sky Theme - Bright, Colorful, No White */
-    --paper-0: #E0F2FE; /* Sky 100 - Bright airy blue base */
-    --paper-1: #F0F9FF; /* Sky 50 - Slightly lighter tinted blue for cards */
-    --paper-2: #BAE6FD; /* Sky 200 - Interactive surfaces */
+    /* The Ledger — Original warm cream palette */
+    --paper-0: #FAF9F6; /* Warm cream base */
+    --paper-1: #F5F3EE; /* Slightly deeper warm cream for cards */
+    --paper-2: #EDEAE3; /* Interactive warm surfaces */
 
-    --ink-900: #0F172A; /* Slate 900 */
-    --ink-700: #334155; /* Slate 700 */
-    --ink-500: #64748B; /* Slate 500 */
-    --ink-300: #CBD5E1; /* Slate 300 */
+    --ink-900: #1A1A1A; /* Near-black */
+    --ink-700: #3D3D3D; /* Warm dark gray */
+    --ink-500: #6B6B6B; /* Warm mid gray */
+    --ink-300: #B8B5AD; /* Warm light gray */
 
-    --rule: #E2E8F0;      /* Slate 200 */
-    --rule-soft: #F1F5F9; /* Slate 100 */
+    --rule: #E5E2DA;      /* Warm border */
+    --rule-soft: #F0EDE6; /* Very subtle warm rule */
 
-    --stamp-verified: #0284C7; /* Sky 600 - Professional Blue */
+    --stamp-verified: #16A34A; /* Emerald 600 */
     --stamp-pending: #D97706;  /* Amber 600 */
     --stamp-rejected: #DC2626; /* Red 600 */
-    --stamp-archived: #64748B; /* Slate 500 */
+    --stamp-archived: #6B6B6B; /* Warm slate */
+
+    --brand-primary: #2563EB; /* Blue 600 */
 
     /* Radius — clean and modern */
     --r-sm: 6px;
@@ -139,12 +141,6 @@
 
   body {
     background-color: var(--paper-0);
-    background-image: 
-      radial-gradient(at 0% 0%, hsla(199, 89%, 48%, 0.12) 0px, transparent 50%),
-      radial-gradient(at 100% 0%, hsla(328, 100%, 54%, 0.1) 0px, transparent 50%),
-      radial-gradient(at 100% 100%, hsla(43, 100%, 50%, 0.1) 0px, transparent 50%),
-      radial-gradient(at 0% 100%, hsla(253, 100%, 50%, 0.1) 0px, transparent 50%);
-    background-attachment: fixed;
     color: var(--ink-900);
     font-family: var(--font-body);
     -webkit-font-smoothing: antialiased;
