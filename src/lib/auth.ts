@@ -35,6 +35,16 @@ async function isPermittedDomain(email: string): Promise<boolean> {
   const domain = email.split("@")[1]?.toLowerCase();
   if (!domain) return false;
 
+  // Auto-allow university and college domains
+  if (
+    domain.endsWith(".edu") || 
+    domain.endsWith(".edu.in") || 
+    domain.endsWith(".ac.in") ||
+    domain === "lendi.org"
+  ) {
+    return true;
+  }
+
   try {
     const institution = await prisma.institution.findFirst({
       where: { domains: { has: domain } },

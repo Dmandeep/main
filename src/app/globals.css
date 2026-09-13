@@ -64,10 +64,10 @@
   :root {
     color-scheme: light;
 
-    /* The Ledger — Original warm cream palette */
-    --paper-0: #FAF9F6; /* Warm cream base */
-    --paper-1: #F5F3EE; /* Slightly deeper warm cream for cards */
-    --paper-2: #EDEAE3; /* Interactive warm surfaces */
+    /* The Ledger — Light Cream Palette */
+    --paper-0: #FFFCF5; /* Ultra light bright cream (Base) */
+    --paper-1: #FEF9EB; /* Soft warm cream (Cards & Surfaces) */
+    --paper-2: #FDF3D9; /* Deeper warm cream (Interactive Elements) */
 
     --ink-900: #1A1A1A; /* Near-black */
     --ink-700: #3D3D3D; /* Warm dark gray */
